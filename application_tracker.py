@@ -5,61 +5,71 @@ import email
 import os
 from datetime import datetime
 
-# ---------- Email Extraction Section ---------- #
+# ---------- Email Extraction Function ---------- #
 
 def extract_emails():
-    # Replace with your actual email credentials and server details
-    IMAP_SERVER = 'imap.example.com'
+    IMAP_SERVER = 'imap.example.com'  # Replace with actual server
     EMAIL_ACCOUNT = 'your_email@example.com'
     PASSWORD = 'your_password'
 
-    # Connect to the IMAP server
-    mail = imaplib.IMAP4_SSL(IMAP_SERVER)
-    mail.login(EMAIL_ACCOUNT, PASSWORD)
-    mail.select('inbox')
+    try:
+        # Connect to the IMAP server
+        mail = imaplib.IMAP4_SSL(IMAP_SERVER)
+        mail.login(EMAIL_ACCOUNT, PASSWORD)
+        mail.select('inbox')
 
-    # Search for all emails
-    status, data = mail.search(None, 'ALL')
-    email_ids = data[0].split()
+        # Search for all emails
+        status, data = mail.search(None, 'ALL')
+        email_ids = data[0].split()
 
-    applications = []
-    for e_id in email_ids:
-        status, msg_data = mail.fetch(e_id, '(RFC822)')
-        raw_email = msg_data[0][1]
-        msg = email.message_from_bytes(raw_email)
+        applications = []
+        for e_id in email_ids:
+            status, msg_data = mail.fetch(e_id, '(RFC822)')
+            raw_email = msg_data[0][1]
+            msg = email.message_from_bytes(raw_email)
 
-        subject = msg['subject']
-        from_ = msg['from']
-        date_ = msg['date']
-        status = 'Pending'  # Default status, can be updated later
+            subject = msg['subject']
+            from_ = msg['from']
+            date_ = msg['date']
+            status = 'Pending'  # Default status
 
-        applications.append([subject, from_, date_, status])
+            applications.append([subject, from_, date_, status])
 
-    # Save to CSV
-    df = pd.DataFrame(applications, columns=['Job Title', 'Company', 'Applied Date', 'Status'])
-    df.to_csv('applications.csv', index=False)
+        # Save to CSV (append new emails)
+        df_new = pd.DataFrame(applications, columns=['Job Title', 'Company', 'Applied Date', 'Status'])
 
-# Uncomment to extract emails when needed
-# extract_emails()
+        # Load existing data (if any)
+        if os.path.exists('applications.csv'):
+            df_existing = pd.read_csv('applications.csv')
+            df_combined = pd.concat([df_existing, df_new]).drop_duplicates(subset=['Job Title', 'Company', 'Applied Date'])
+        else:
+            df_combined = df_new
 
-# ---------- Flask Application Section ---------- #
+        df_combined.to_csv('applications.csv', index=False)
+
+    except Exception as e:
+        print(f"Error fetching emails: {e}")
+
+# ---------- Flask Application ---------- #
 
 app = Flask(__name__)
 
 @app.route('/')
 def display_table():
+    extract_emails()  # Automatically fetch new emails before displaying
+
     # Load and sort the CSV file
     df = pd.read_csv('applications.csv')
-    df['Applied Date'] = pd.to_datetime(df['Applied Date'], errors='coerce', utc=True)  # FIX: Ensuring UTC timezone
+    df['Applied Date'] = pd.to_datetime(df['Applied Date'], errors='coerce', utc=True)
 
-    # Make timestamps timezone-naive
+    # Convert timestamps to timezone-naive
     df['Applied Date'] = df['Applied Date'].dt.tz_localize(None)
 
-    # Filter and sort the data
+    # Filter and sort data
     df = df[df['Applied Date'] >= pd.Timestamp('2025-01-01')]
     df = df.sort_values(by='Applied Date', ascending=False)
 
-    # Generate HTML table
+    # Apply color formatting
     def apply_color(status):
         return {
             'Pending': 'color: yellow;',
@@ -91,41 +101,34 @@ def display_table():
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 padding: 20px;
             }}
-
             h1 {{
                 color: #333;
                 text-align: center;
                 margin-bottom: 20px;
             }}
-
             table {{
                 background-color: white;
                 border-radius: 10px;
                 overflow: hidden;
                 box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
             }}
-
             th {{
                 background-color: #4CAF50;
                 color: white;
                 text-align: center;
             }}
-
             td, th {{
                 padding: 15px;
                 text-align: left;
             }}
-
             tr:hover {{
                 background-color: #f1f1f1;
             }}
-
             .status {{
                 font-weight: bold;
                 padding: 5px 10px;
                 border-radius: 5px;
             }}
-
             .Pending {{ color: yellow; }}
             .Sorry {{ color: red; }}
             .Selected {{ color: green; }}
@@ -152,5 +155,5 @@ def display_table():
     return render_template_string(html)
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))  # FIX: Render requires explicit port binding
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=True)
