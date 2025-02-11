@@ -3,7 +3,7 @@ import pandas as pd
 import imaplib
 import email
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ---------- Email Extraction Function ---------- #
 
@@ -18,8 +18,10 @@ def extract_emails():
         mail.login(EMAIL_ACCOUNT, PASSWORD)
         mail.select('inbox')
 
-        # Search for all emails
-        status, data = mail.search(None, 'ALL')
+        # Fetch only recent emails (Last 7 Days)
+        date_since = (datetime.utcnow() - timedelta(days=7)).strftime('%d-%b-%Y')
+        status, data = mail.search(None, f'(SINCE {date_since})')
+        
         email_ids = data[0].split()
 
         applications = []
@@ -28,12 +30,17 @@ def extract_emails():
             raw_email = msg_data[0][1]
             msg = email.message_from_bytes(raw_email)
 
-            subject = msg['subject']
-            from_ = msg['from']
-            date_ = msg['date']
+            subject = msg['subject'] if msg['subject'] else "No Subject"
+            from_ = msg['from'] if msg['from'] else "Unknown Sender"
+            date_ = msg['date'] if msg['date'] else "Unknown Date"
             status = 'Pending'  # Default status
 
-            applications.append([subject, from_, date_, status])
+            try:
+                parsed_date = email.utils.parsedate_to_datetime(date_)
+            except Exception:
+                parsed_date = datetime.utcnow()  # Fallback if date format is incorrect
+
+            applications.append([subject, from_, parsed_date.strftime('%Y-%m-%d'), status])
 
         # Save to CSV (append new emails)
         df_new = pd.DataFrame(applications, columns=['Job Title', 'Company', 'Applied Date', 'Status'])
